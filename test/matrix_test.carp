@@ -1,0 +1,102 @@
+(load "Test.carp")
+(use Test)
+(load "matrix.carp")
+(use Mat)
+
+(deftest matrix-test
+  (let [m1 (Mat.zeros 2 2)
+        m2 (Mat.unsafe-from-array 2 2 [1.0 2.0 3.0 4.0])
+        m3 (Mat.unsafe-from-array 2 2 [5.0 6.0 7.0 8.0])
+        
+        s1 (assert-equal matrix-test 2 @(Matrix.rows &m1) "Matrix.rows works")
+        s2 (assert-equal &s1 2 @(Matrix.cols &m1) "Matrix.cols works")
+        s3 (assert-equal &s2 0.0 (Mat.unsafe-get &m1 0 0) "Mat.zeros initializes with 0.0")
+        
+        s4 (assert-equal &s3 1.0 (Mat.unsafe-get &m2 0 0) "Mat.unsafe-get works (0,0)")
+        s5 (assert-equal &s4 4.0 (Mat.unsafe-get &m2 1 1) "Mat.unsafe-get works (1,1)")
+
+        ;; Approx equality
+        s6 (assert-true &s5 (Mat.approx= &m2 &m2 0.000001) "approx= works for same matrix")
+        s7 (assert-false &s6 (Mat.approx= &m2 &m3 0.000001) "approx= works for different matrices")
+
+        ;; Arithmetic
+        added (Mat.unsafe-add &m2 &m3)
+        s8 (assert-equal &s7 6.0 (Mat.unsafe-get &added 0 0) "Mat.unsafe-add works")
+
+        ;; Mutating Arithmetic
+        m-mut (Matrix.copy &m2)
+        m-mut2 (Mat.unwrap-success (Mat.add! m-mut &m3))
+        s9 (assert-equal &s8 6.0 (Mat.unsafe-get &m-mut2 0 0) "add! works (genuinely in-place)")
+
+        ;; Multiplication
+        mulled (Mat.unsafe-mul &m2 &m3)
+        s10 (assert-equal &s9 19.0 (Mat.unsafe-get &mulled 0 0) "Mat.unsafe-mul works (0,0)")
+
+        ;; Mat-Vec & Outer Product
+        vec (Mat.unsafe-from-array 2 1 [1.0 2.0])
+        mv (Mat.unwrap-success (Mat.mat-vec &m2 &vec))
+        s11 (assert-equal &s10 5.0 (Mat.unsafe-get &mv 0 0) "mat-vec works (1*1 + 2*2 = 5)")
+        s12 (assert-equal &s11 11.0 (Mat.unsafe-get &mv 1 0) "mat-vec works (3*1 + 4*2 = 11)")
+
+        op (Mat.outer-product &vec &vec)
+        s13 (assert-equal &s12 1.0 (Mat.unsafe-get &op 0 0) "outer-product (0,0)")
+        s14 (assert-equal &s13 4.0 (Mat.unsafe-get &op 1 1) "outer-product (1,1)")
+
+        ;; Structural (Copy behavior)
+        m2-for-resh (Matrix.copy &m2)
+        reshaped (Mat.unwrap-success (Mat.reshape m2-for-resh 4 1))
+        _unused1 (Mat.unwrap-success (Mat.add! (Matrix.copy &reshaped) &reshaped)) ; Double the values
+        s15 (assert-equal &s14 4 @(Matrix.rows &reshaped) "reshape rows")
+        s16 (assert-equal &s15 1 @(Matrix.cols &reshaped) "reshape cols")
+        s17 (assert-equal &s16 3.0 (Mat.unsafe-get &m2 1 0) "reshape: original data is isolated (set- member currently copies in Carp)")
+
+        ;; RNG Verification
+        rand-m (Mat.random 10 10)
+        s18 (assert-false &s17 (= (Mat.unsafe-get &rand-m 0 0) (Mat.unsafe-get &rand-m 0 1)) "RNG produces unique values")
+
+        ;; Identities
+        t1 (Mat.transpose &m2)
+        t2 (Mat.transpose &t1)
+        s19 (assert-true &s18 (Mat.approx= &m2 &t2 0.000001) "Identity: (A^T)^T = A")
+
+        ident (Mat.identity 2)
+        a-ident (Mat.unsafe-mul &m2 &ident)
+        s20 (assert-true &s19 (Mat.approx= &m2 &a-ident 0.000001) "Identity: A * I = A")
+
+        ;; --- Robustness & Safety ---
+
+        ;; 1. Shape Failure Tests
+        m3x3 (Mat.zeros 3 3)
+        s21 (assert-true &s20 (Result.error? &(Mat.add &m2 &m3x3)) "add shape mismatch returns Error")
+        s22 (assert-true &s21 (Result.error? &(Mat.mul &m2 &m3x3)) "mul shape mismatch returns Error")
+        s23 (assert-true &s22 (Result.error? &(Mat.reshape (Matrix.copy &m2) 5 1)) "reshape total size mismatch returns Error")
+
+        ;; 2. Mutation Isolation
+        m-iso-orig (Mat.unsafe-from-array 1 1 [1.0])
+        m-iso-copy (Matrix.copy &m-iso-orig)
+        _unused2 (Mat.unwrap-success (Mat.add! m-iso-copy &m-iso-orig)) ; 1.0 + 1.0 = 2.0
+        s24 (assert-equal &s23 1.0 (Mat.unsafe-get &m-iso-orig 0 0) "Mutation isolation: original unchanged by copy mutation")
+
+        ;; 3. Approx Equality Epsilon Sensitivity
+        m-eps-a (Mat.unsafe-from-array 1 1 [1.0])
+        m-eps-b (Mat.unsafe-from-array 1 1 [1.0001])
+        s25 (assert-false &s24 (Mat.approx= &m-eps-a &m-eps-b 0.00001) "approx= false for small eps")
+        s26 (assert-true &s25 (Mat.approx= &m-eps-a &m-eps-b 0.001) "approx= true for large eps")
+
+        ;; 4. Associativity Smoke Test: (A * B) * C = A * (B * C)
+        ma (Mat.unsafe-from-array 2 2 [1.0 2.0 3.0 4.0])
+        mb (Mat.unsafe-from-array 2 2 [5.0 6.0 7.0 8.0])
+        mc (Mat.unsafe-from-array 2 2 [9.0 0.0 1.0 2.0])
+        assoc-left (Mat.unsafe-mul &(Mat.unsafe-mul &ma &mb) &mc)
+        assoc-right (Mat.unsafe-mul &ma &(Mat.unsafe-mul &mb &mc))
+        s27 (assert-true &s26 (Mat.approx= &assoc-left &assoc-right 0.000001) "Associativity: (A*B)*C = A*(B*C)")
+
+        ;; 5. 0x0 Matrix Behavior (Smoke test for allocation/loops)
+        m0x0 (Mat.zeros 0 0)
+        s28 (assert-equal &s27 0 @(Matrix.rows &m0x0) "0x0 matrix rows")
+        s29 (assert-equal &s28 0 (Array.length (Matrix.data &m0x0)) "0x0 matrix data length")
+
+        ;; Str
+        s-str (str &m2)
+        s30 (assert-true &s29 (> (String.length &s-str) 0) "str returns non-empty string")]
+    s30))

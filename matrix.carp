@@ -1,0 +1,329 @@
+(use Array)
+(use Double)
+(use Random)
+(use Maybe)
+(use Result)
+
+(deftype Matrix [
+  rows Int
+  cols Int
+  data (Array Double)
+])
+
+(defmodule Mat
+  (defn panic! [msg]
+    (do
+      (IO.println msg)
+      (System.exit 1)))
+
+  (defn rand-weight []
+    (- (* (/ (Double.from-int (Int.random)) (Double.from-int Int.MAX)) 2.0) 1.0))
+
+  (defn random-range [low high]
+    (+ low (* (/ (Double.from-int (Int.random)) (Double.from-int Int.MAX)) (- high low))))
+
+  (defn flat-index [cols r c]
+    (+ (* r cols) c))
+
+  (defn same-shape? [a b]
+    (and (= @(Matrix.rows a) @(Matrix.rows b))
+         (= @(Matrix.cols a) @(Matrix.cols b))))
+
+  (defn approx= [a b eps]
+    (if (not (same-shape? a b))
+        false
+        (let [da (Matrix.data a)
+              db (Matrix.data b)
+              len (Array.length da)
+              res true]
+          (do
+            (for [i 0 len]
+              (when (> (Double.abs (- (unsafe-nth-value da i) (unsafe-nth-value db i))) eps)
+                (do (set! res false) (break))))
+            res))))
+
+  (defn rebuild [m data]
+    (Matrix.init @(Matrix.rows m) @(Matrix.cols m) data))
+
+  (defn shape [m]
+    [@(Matrix.rows m) @(Matrix.cols m)])
+
+  (defn zeros [r c]
+    (Matrix.init r c (replicate (* r c) &0.0)))
+
+  (defn fill [r c x]
+    (Matrix.init r c (replicate (* r c) &x)))
+
+  (defn random [r c]
+    (Matrix.init r c (repeat (* r c) &rand-weight)))
+
+  (defn = [a b]
+    (and (same-shape? a b)
+         (= (Matrix.data a) (Matrix.data b))))
+
+  (implements = Mat.=)
+
+  (defn from-array [r c arr]
+    (if (not (= (Array.length &arr) (* r c)))
+        (Error @"array size does not match dimensions")
+        (Success (Matrix.init r c arr))))
+
+  (defn unsafe-from-array [r c arr]
+    (match (from-array r c arr)
+      (Success m) m
+      (Error msg) (panic! &msg)))
+
+  (defn unsafe-get-at [m r c]
+    (let [cols @(Matrix.cols m)]
+      (unsafe-nth-value (Matrix.data m) (flat-index cols r c))))
+
+  (defn unsafe-get [m r c]
+    (unsafe-get-at m r c))
+
+  (defn get [m r c]
+    (if (and (and (>= r 0) (< r @(Matrix.rows m)))
+             (and (>= c 0) (< c @(Matrix.cols m))))
+        (Just (unsafe-get m r c))
+        (Nothing)))
+
+  (defn row [m r]
+    (if (or (< r 0) (>= r @(Matrix.rows m)))
+        (Error @"index out of bounds")
+        (let [c @(Matrix.cols m)
+              data (Matrix.data m)
+              res (allocate c)]
+          (do
+            (for [i 0 c]
+              (aset! &res i (unsafe-nth-value data (+ (* r c) i))))
+            (Success (Matrix.init 1 c res))))))
+
+  (defn unsafe-row [m r]
+    (match (row m r)
+      (Success res) res
+      (Error msg) (panic! &msg)))
+
+  (defn col [m c]
+    (if (or (< c 0) (>= c @(Matrix.cols m)))
+        (Error @"index out of bounds")
+        (let [r @(Matrix.rows m)
+              cols @(Matrix.cols m)
+              data (Matrix.data m)
+              res (allocate r)]
+          (do
+            (for [i 0 r]
+              (aset! &res i (unsafe-nth-value data (+ (* i cols) c))))
+            (Success (Matrix.init r 1 res))))))
+
+  (defn unsafe-col [m c]
+    (match (col m c)
+      (Success res) res
+      (Error msg) (panic! &msg)))
+
+  (defn identity [n]
+    (let [m (zeros n n)
+          data (Matrix.data &m)]
+      (do
+        (for [i 0 n]
+          (aset! data (flat-index n i i) 1.0))
+        m)))
+
+  (defn add [a b]
+    (if (not (same-shape? a b))
+        (Error @"shape mismatch")
+        (Success (rebuild a (Array.zip &(fn [x y] (+ @x @y)) (Matrix.data a) (Matrix.data b))))))
+
+  (defn unsafe-add [a b]
+    (match (add a b)
+      (Success res) res
+      (Error msg) (panic! &msg)))
+
+  (defn add! [a b]
+    (if (not (same-shape? &a b))
+        (Error @"shape mismatch")
+        (let [da (Matrix.data &a)
+              db (Matrix.data b)
+              len (Array.length da)]
+          (do
+            (for [i 0 len]
+              (aset! da i (+ (unsafe-nth-value da i) (unsafe-nth-value db i))))
+            (Success a)))))
+
+  (defn sub [a b]
+    (if (not (same-shape? a b))
+        (Error @"shape mismatch")
+        (Success (rebuild a (Array.zip &(fn [x y] (- @x @y)) (Matrix.data a) (Matrix.data b))))))
+
+  (defn unsafe-sub [a b]
+    (match (sub a b)
+      (Success res) res
+      (Error msg) (panic! &msg)))
+
+  (defn sub! [a b]
+    (if (not (same-shape? &a b))
+        (Error @"shape mismatch")
+        (let [da (Matrix.data &a)
+              db (Matrix.data b)
+              len (Array.length da)]
+          (do
+            (for [i 0 len]
+              (aset! da i (- (unsafe-nth-value da i) (unsafe-nth-value db i))))
+            (Success a)))))
+
+  (defn hadamard [a b]
+    (if (not (same-shape? a b))
+        (Error @"shape mismatch")
+        (Success (rebuild a (Array.zip &(fn [x y] (* @x @y)) (Matrix.data a) (Matrix.data b))))))
+
+  (defn unsafe-hadamard [a b]
+    (match (hadamard a b)
+      (Success res) res
+      (Error msg) (panic! &msg)))
+
+  (defn hadamard! [a b]
+    (if (not (same-shape? &a b))
+        (Error @"shape mismatch")
+        (let [da (Matrix.data &a)
+              db (Matrix.data b)
+              len (Array.length da)]
+          (do
+            (for [i 0 len]
+              (aset! da i (* (unsafe-nth-value da i) (unsafe-nth-value db i))))
+            (Success a)))))
+
+  (defn scalar-mul [m s]
+    (rebuild m (Array.copy-map &(fn [x] (* @x s)) (Matrix.data m))))
+
+  (defn scalar-mul! [m s]
+    (Matrix.update-data m &(fn [d] (Array.endo-map &(fn [x] (* x s)) d))))
+
+  (defn dot [a b]
+    (let [data-a (Matrix.data a)
+          data-b (Matrix.data b)
+          len (Array.length data-a)]
+      (if (not (= len (Array.length data-b)))
+          (Error @"length mismatch")
+          (let [sum 0.0]
+            (do
+              (for [i 0 len]
+                (set! sum (+ sum (* (unsafe-nth-value data-a i)
+                                    (unsafe-nth-value data-b i)))))
+              (Success sum))))))
+
+  (defn unsafe-dot [a b]
+    (match (dot a b)
+      (Success res) res
+      (Error msg) (panic! &msg)))
+
+  (defn unwrap-success [res]
+    (match res
+      (Success x) x
+      (Error msg) (panic! &msg)))
+
+  (defn transpose [m]
+    (let [r @(Matrix.rows m)
+          c @(Matrix.cols m)
+          data (Matrix.data m)
+          res (allocate (* r c))]
+      (do
+        (for [i 0 r]
+          (for [j 0 c]
+            (aset-uninitialized! &res (+ (* j r) i) (unsafe-nth-value data (+ (* i c) j)))))
+        (Matrix.init c r res))))
+(defn mul [a b]
+  (let [r1 @(Matrix.rows a)
+        c1 @(Matrix.cols a)
+        r2 @(Matrix.rows b)
+        c2 @(Matrix.cols b)]
+    (if (not (= c1 r2))
+        (Error @"invalid dimensions")
+        (let [bt (transpose b)
+              data-a (Matrix.data a)
+              data-bt (Matrix.data &bt)
+              res (allocate (* r1 c2))]
+          (do
+            (for [i 0 r1]
+              (for [j 0 c2]
+                (let [sum 0.0]
+                  (do
+                    (for [k 0 c1]
+                      ;; a[i,k] * bt[j,k] - both row contiguous!
+                      (set! sum (+ sum (* (unsafe-nth-value data-a (flat-index c1 i k))
+                                          (unsafe-nth-value data-bt (flat-index c1 j k))))))
+                    (aset-uninitialized! &res (flat-index c2 i j) sum)))))
+            (Success (Matrix.init r1 c2 res)))))))
+
+  (defn unsafe-mul [a b]
+    (match (mul a b)
+      (Success res) res
+      (Error msg) (panic! &msg)))
+
+  (defn mat-vec [m v]
+    (let [r @(Matrix.rows m)
+          c @(Matrix.cols m)]
+      (if (not (= c @(Matrix.rows v)))
+          (Error @"dimension mismatch")
+          (let [data-m (Matrix.data m)
+                data-v (Matrix.data v)
+                res (allocate r)]
+            (do
+              (for [i 0 r]
+                (let [sum 0.0]
+                  (do
+                    (for [j 0 c]
+                      (set! sum (+ sum (* (unsafe-nth-value data-m (flat-index c i j))
+                                          (unsafe-nth-value data-v j)))))
+                    (aset-uninitialized! &res i sum))))
+              (Success (Matrix.init r 1 res)))))))
+
+  (defn outer-product [a b]
+    ;; a [r1 x 1], b [r2 x 1] -> [r1 x r2]
+    (if (or (not (= 1 @(Matrix.cols a))) (not (= 1 @(Matrix.cols b))))
+        (panic! "Matrix.outer-product: inputs must be column vectors ([n x 1])")
+        (let [r @(Matrix.rows a)
+              c @(Matrix.rows b)
+              data-a (Matrix.data a)
+              data-b (Matrix.data b)
+              res (allocate (* r c))]
+          (do
+            (for [i 0 r]
+              (for [j 0 c]
+                (aset-uninitialized! &res (flat-index c i j) (* (unsafe-nth-value data-a i)
+                                                                (unsafe-nth-value data-b j)))))
+            (Matrix.init r c res)))))
+
+  (defn map [m f]
+    (rebuild m (Array.copy-map f (Matrix.data m))))
+
+  (defn map! [m f]
+    (Matrix.update-data m &(fn [d] (Array.endo-map f d))))
+
+  (defn map-indexed [m f]
+    (let [r @(Matrix.rows m)
+          c @(Matrix.cols m)
+          data (Matrix.data m)
+          res (allocate (* r c))]
+      (do
+        (for [i 0 r]
+          (for [j 0 c]
+            (let [idx (flat-index c i j)]
+              (aset-uninitialized! &res idx (~f i j (unsafe-nth data idx))))))
+        (Matrix.init r c res))))
+
+  (defn reduce [f init m]
+    (Array.reduce f init (Matrix.data m)))
+
+  (defn sum [m]
+    (Array.reduce &(fn [acc x] (+ acc @x)) 0.0 (Matrix.data m)))
+
+  (defn mean [m]
+    (/ (sum m) (Double.from-int (Array.length (Matrix.data m)))))
+
+  (defn reshape [m r c]
+    (if (not (= (* r c) (Array.length (Matrix.data &m))))
+        (Error @"total elements mismatch")
+        (Success (Matrix.set-rows (Matrix.set-cols m c) r))))
+
+  (defn flatten [m]
+    (let [len (Array.length (Matrix.data &m))]
+      (Matrix.set-rows (Matrix.set-cols m len) 1)))
+)
