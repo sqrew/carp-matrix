@@ -26,6 +26,10 @@ Add this to your project by loading `matrix.carp`.
 carp -x test/matrix_test.carp
 ```
 
+## Examples
+
+See [examples.md](examples.md) for usage examples.
+
 ## License
 
 MIT
